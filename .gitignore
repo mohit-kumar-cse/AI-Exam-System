@@ -1,0 +1,51 @@
+# ===========================
+# ENVIRONMENT & SECRETS
+# ===========================
+.env
+.env.local
+.env.production
+.env.development
+*.env
+
+# ===========================
+# DEPENDENCIES
+# ===========================
+node_modules/
+**/node_modules/
+
+# ===========================
+# BUILD OUTPUTS
+# ===========================
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# ===========================
+# LOGS
+# ===========================
+logs/
+*.log
+npm-debug.log*
+
+# ===========================
+# OS FILES
+# ===========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===========================
+# EDITOR
+# ===========================
+.vscode/
+.idea/
+*.swp
+
+# ===========================
+# SENSITIVE SCRIPTS (never push these)
+# ===========================
+resetPassword.js
+**/resetPassword.js
+seedAdmin.js
+**/seedAdmin.js
