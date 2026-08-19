@@ -489,7 +489,7 @@ FRONTEND_URL=http://localhost:5173
 VITE_API_URL=http://localhost:5000/api
 ```
 
-> Never commit real `.env` files or API keys to GitHub.
+
 
 ---
 
