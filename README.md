@@ -433,7 +433,7 @@ AI-Exam-System/
 ## 1. Clone Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ai-exam-system.git
+git clone https://github.com/mohit-kumar-cse/AI-Exam-System.git
 cd ai-exam-system
 ```
 
