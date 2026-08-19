@@ -6,34 +6,32 @@ import api from "../../../../services/api";
 export function useExamAttempt(examId, token) {
   const navigate = useNavigate();
 
-  const [exam,         setExam]         = useState(null);
-  const [loading,      setLoading]      = useState(true);
-  const [timeLeft,     setTimeLeft]     = useState(0);
+  const [exam, setExam] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [timeLeft, setTimeLeft] = useState(0);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers,      setAnswers]      = useState({});
-  const [timeSpent,    setTimeSpent]    = useState({});
-  const [submitted,    setSubmitted]    = useState(false);
+  const [answers, setAnswers] = useState({});
+  const [timeSpent, setTimeSpent] = useState({});
+  const [submitted, setSubmitted] = useState(false);
 
-  // stable storage key — won't change between renders
   const storageKey = useMemo(() => `exam_${examId}_progress`, [examId]);
 
-  // refs so timer/submit callbacks always read latest state
-  const answersRef      = useRef(answers);
-  const timeSpentRef    = useRef(timeSpent);
-  const submittedRef    = useRef(submitted);
+  const answersRef = useRef(answers);
+  const timeSpentRef = useRef(timeSpent);
+  const submittedRef = useRef(submitted);
 
-  useEffect(() => { answersRef.current   = answers;   }, [answers]);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
   useEffect(() => { timeSpentRef.current = timeSpent; }, [timeSpent]);
   useEffect(() => { submittedRef.current = submitted; }, [submitted]);
 
-  /* ── Warn before page exit ─────────────────────────────────────────────── */
+  
   useEffect(() => {
     const handler = (e) => { e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  /* ── Tab switch detection ──────────────────────────────────────────────── */
+ 
   useEffect(() => {
     const handler = () => {
       if (document.hidden) alert("Warning: Tab switching detected!");
@@ -42,24 +40,38 @@ export function useExamAttempt(examId, token) {
     return () => document.removeEventListener("visibilitychange", handler);
   }, []);
 
-  /* ── Fullscreen ────────────────────────────────────────────────────────── */
+  
   useEffect(() => {
     document.documentElement.requestFullscreen().catch(() => {
       console.log("Fullscreen not available — continuing anyway");
     });
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && !submittedRef.current) {
+        setTimeout(() => {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }, 500);
+        alert("Warning: Please stay in fullscreen mode during the exam.");
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
     return () => {
-      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
     };
   }, []);
 
-  /* ── Fetch exam ────────────────────────────────────────────────────────── */
+  
   useEffect(() => {
     if (!token) return;
 
     api.get(`/exams/${examId}/start`)
       .then(({ data }) => {
         setExam(data);
-
         const saved = localStorage.getItem(storageKey);
         if (saved) {
           const { savedAnswers, savedIndex, savedTimeLeft, savedTimeSpent }
@@ -75,58 +87,72 @@ export function useExamAttempt(examId, token) {
         } else {
           setTimeLeft(data.duration * 60);
         }
-
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Failed to load exam:", err);
-        setLoading(false);
+        const status = err.response?.status;
+        const message = err.response?.data?.message || "";
+
+        if (status === 400 && message.toLowerCase().includes("already")) {
+          navigate("/student/results", {
+            replace: true,
+            state: { notice: "You have already submitted this exam." },
+          });
+        } else if (status === 403) {
+          navigate("/student/exams", {
+            replace: true,
+            state: { notice: "This exam is not available right now." },
+          });
+        } else {
+          console.error("Failed to load exam:", err);
+          setLoading(false);
+        }
       });
-  }, [examId, token, storageKey]);
+  }, [examId, token, storageKey, navigate]);
 
-  /* ── Save progress to localStorage ────────────────────────────────────── */
-  useEffect(() => {
-    if (!exam || timeLeft <= 0) return;
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        savedAnswers:  answers,
-        savedIndex:    currentIndex,
-        savedTimeLeft: timeLeft,
-        savedTimeSpent: timeSpent,
-      })
-    );
-  }, [answers, currentIndex, timeLeft, timeSpent, exam, storageKey]);
+  
+  const handleSubmit = useCallback(async () => {
+    if (submittedRef.current) return;  
 
-  /* ── Submit ────────────────────────────────────────────────────────────── */
-  const handleSubmit = useCallback(() => {
-    // guard against double submit (timer + button)
-    if (submittedRef.current) return;
     setSubmitted(true);
 
-    localStorage.removeItem(storageKey);
-
-    api.post("/submissions/submit", {
-      examId,
-      answers:   answersRef.current,
-      timeSpent: timeSpentRef.current,
-    })
-      .then(({ data }) => {
-        if (data.message) alert(data.message);
-        navigate("/student/results", { replace: true });
-      })
-      .catch((err) => {
-        console.error("Submit error:", err);
-        alert("Error submitting exam. Please try again.");
-        setSubmitted(false);
+    try {
+      const res = await api.post("/submissions/submit", {
+        examId,
+        answers: answersRef.current,
+        timeSpent: timeSpentRef.current,
       });
-  }, [examId, navigate, storageKey]);
 
-  // stable ref for handleSubmit so timer never restarts due to function identity change
+      localStorage.removeItem(storageKey);
+
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+
+      navigate("/student/results", {
+        replace: true,
+        state: { resultId: res.data?.resultId, notice: "Exam submitted successfully." },
+      });
+    } catch (err) {
+      console.error("Submit failed:", err);
+
+      
+      if (err.response?.status === 409) {
+        localStorage.removeItem(storageKey);
+        navigate("/student/results", { replace: true });
+        return;
+      }
+
+      alert("Failed to submit exam. Please check your connection and try again.");
+      setSubmitted(false);
+    }
+  }, [examId, storageKey, navigate]);
+
+  
   const handleSubmitRef = useRef(handleSubmit);
   useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);
 
-  /* ── Countdown timer ───────────────────────────────────────────────────── */
+  
   useEffect(() => {
     if (!exam || timeLeft === 0) return;
 
@@ -142,10 +168,9 @@ export function useExamAttempt(examId, token) {
     }, 1000);
 
     return () => clearInterval(timer);
-    // ✅ only depends on exam — handleSubmit accessed via ref, so no restart
   }, [exam]);
 
-  /* ── Time per question tracker ─────────────────────────────────────────── */
+  
   useEffect(() => {
     if (!exam) return;
     const qId = exam.questions[currentIndex]._id;
@@ -155,7 +180,21 @@ export function useExamAttempt(examId, token) {
     return () => clearInterval(interval);
   }, [currentIndex, exam]);
 
-  /* ── Select answer ─────────────────────────────────────────────────────── */
+  
+  useEffect(() => {
+    if (!exam || submitted) return;
+
+    const payload = {
+      savedAnswers: answers,
+      savedIndex: currentIndex,
+      savedTimeLeft: timeLeft,
+      savedTimeSpent: timeSpent,
+    };
+
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  }, [exam, submitted, answers, currentIndex, timeLeft, timeSpent, storageKey]);
+
+  
   const handleOptionChange = (questionId, optionIndex) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionIndex }));
   };

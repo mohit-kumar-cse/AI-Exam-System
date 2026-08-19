@@ -1,262 +1,354 @@
 // C:\AI-Exam-System\backend\src\routes\resultRoutes.js
 import express from "express";
+
 import Result from "../models/Result.js";
 import AnswerKey from "../models/AnswerKey.js";
 import Submission from "../models/Submission.js";
 import User from "../models/User.js";
+
 import { protect } from "../middleware/authMiddleware.js";
 import { generateResultPDF } from "../utils/generateResultPDF.js";
 import { verifySignature } from "../utils/security.js";
+import {
+  generateAIInsights,
+  getAIInsights,
+} from "../controllers/resultController.js";
 
-// ✅ router initialized FIRST — always before any route definitions
 const router = express.Router();
 
-/* ==========================================
-   GET MY RESULTS (LIST VIEW)
-========================================== */
+
+
 router.get("/my-results", protect, async (req, res) => {
   try {
-    const results = await Result.find({ student: req.user.id })
-      .populate("exam")
+    const results = await Result.find({
+      student: req.user.id,
+    })
+      .populate("exam", "title subject resultReleased")
       .sort({ createdAt: -1 });
 
-    const formattedResults = [];
+    const formattedResults = results
+      .filter((result) => result.exam)
+      .map((result) => {
+        const percentage =
+          result.percentage != null
+            ? result.percentage
+            : result.totalMarks > 0
+              ? Number(
+                  ((result.obtainedMarks / result.totalMarks) * 100).toFixed(2),
+                )
+              : 0;
 
-    for (const r of results) {
-      const exam = r.exam;
-      if (!exam) continue;
+        return {
+          _id: result._id,
+          exam: result.exam._id,
+          examTitle: result.exam.title,
+          examSubject: result.exam.subject,
+          totalMarks: result.totalMarks ?? 0,
+          obtainedMarks: result.obtainedMarks ?? 0,
+          percentage,
+          rank: result.rank ?? "N/A",
+          createdAt: result.createdAt,
+          evaluated: result.evaluated ?? false,
+          isReleased:
+            result.exam.resultReleased === true ||  
+            result.isReleased === true,
+        };
+      });
 
-      const percentage =
-        r.percentage != null && r.percentage !== 0
-          ? r.percentage
-          : r.totalMarks > 0
-          ? parseFloat(((r.obtainedMarks / r.totalMarks) * 100).toFixed(2))
-          : 0;
+    return res.json(formattedResults);
+  } catch (error) {
+    console.error("My results error:", error);
 
-      formattedResults.push({
-        _id: r._id,
-        exam: exam._id,
-        examTitle: exam.title,
-        examSubject: exam.subject,
-        totalMarks: r.totalMarks ?? 0,
-        obtainedMarks: r.obtainedMarks ?? 0,
-        percentage,
-        rank: r.rank || "N/A",
-        createdAt: r.createdAt,
-        evaluated: r.evaluated ?? false,
+    return res.status(500).json({
+      message: "Failed to fetch results",
+    });
+  }
+});
+
+
+
+router.get("/:id/ai-insights", protect, getAIInsights);
+
+router.post("/:id/ai-insights", protect, generateAIInsights);
+
+
+
+router.get("/:id/download-pdf", protect, async (req, res) => {
+  try {
+    const result = await Result.findById(req.params.id).populate("exam");
+
+    if (!result) {
+      return res.status(404).json({
+        message: "Result not found",
       });
     }
 
-    res.json(formattedResults);
-  } catch (error) {
-    console.error("🔥 My results fetch error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
+    if (
+      req.user.role !== "admin" &&
+      result.student.toString() !== req.user.id.toString()
+    ) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
 
-/* ==========================================
-   DOWNLOAD PDF
-========================================== */
-router.get("/:id/download-pdf", protect, async (req, res) => {
-  try {
-    const result = await Result.findById(req.params.id).populate({
-      path: "exam",
-      populate: { path: "questions" },
-    });
-
-    if (!result) {
-      return res.status(404).json({ message: "Result not found" });
+    if (!result.evaluated) {
+      return res.status(400).json({
+        message: "Result has not been evaluated yet",
+      });
     }
 
     const exam = result.exam;
 
-    // Fetch submission for hash + signature
+    if (!exam) {
+      return res.status(400).json({
+        message: "Exam missing",
+      });
+    }
+
     const submission = result.submission
-      ? await Submission.findById(result.submission)
+      ? await Submission.findById(result.submission).select("+hash +signature")
       : null;
 
-    // Fetch answer key to build question statuses
-    const answerKey = await AnswerKey.findOne({ exam: exam._id });
-    const answerKeyMap     = answerKey?.answers ? Object.fromEntries(answerKey.answers) : {};
-    const resultAnswersMap = result.answers     ? Object.fromEntries(result.answers)    : {};
-    const timeSpentMap     = result.timeSpent   ? Object.fromEntries(result.timeSpent)  : {};
+    const answerKey = await AnswerKey.findOne({
+      exam: exam._id,
+    }).select("+hash");
 
-    // Build question palette data
-    const questions = exam.questions.map((q, i) => {
-      const qId     = q._id.toString();
-      const correct = answerKeyMap[qId];
+    const answerKeyMap = answerKey?.answers
+      ? Object.fromEntries(answerKey.answers)
+      : {};
+
+    const resultAnswersMap = result.answers
+      ? Object.fromEntries(result.answers)
+      : {};
+
+    const timeSpentMap = result.timeSpent
+      ? Object.fromEntries(result.timeSpent)
+      : {};
+
+    const questions = exam.questions.map((question, index) => {
+      const qId = question._id.toString();
+
       const selected = resultAnswersMap[qId];
+
+      const correct = answerKeyMap[qId];
+
       let status = "skipped";
+
       if (selected !== undefined && selected !== null) {
         status = selected === correct ? "correct" : "wrong";
       }
-      return [`Q${i + 1}`, status];
+
+      return [`Q${index + 1}`, status];
     });
 
-    // Total time spent
-    let totalSecs = 0;
-    for (const secs of Object.values(timeSpentMap)) {
-      totalSecs += Number(secs) || 0;
-    }
-    const timeSpent = totalSecs > 0
-      ? `${Math.floor(totalSecs / 60)} min ${totalSecs % 60}s`
-      : "N/A";
+    const totalSeconds = Object.values(timeSpentMap).reduce(
+      (total, value) => total + (Number(value) || 0),
+      0,
+    );
 
-    // Verify submission integrity
+    const timeSpent =
+      totalSeconds > 0
+        ? `${Math.floor(totalSeconds / 60)} min ${totalSeconds % 60}s`
+        : "N/A";
+
     let verified = false;
+
     if (submission?.hash && submission?.signature) {
-      verified = verifySignature(submission.hash, submission.signature);
+      try {
+        verified = verifySignature(submission.hash, submission.signature);
+      } catch {
+        verified = false;
+      }
     }
 
-    // Calculate correct/wrong/skipped counts
-    let correctCount = 0, wrongCount = 0, skippedCount = 0;
-    questions.forEach(([, status]) => {
-      if (status === "correct") correctCount++;
-      else if (status === "wrong") wrongCount++;
-      else skippedCount++;
-    });
+    const correctCount = questions.filter(
+      ([, status]) => status === "correct",
+    ).length;
 
-    // Fetch full user from DB — JWT only has id/role, not name
-    const fullUser = await User.findById(req.user.id).select("name email username rollNumber");
-    const studentName = fullUser?.name || fullUser?.username || fullUser?.email || "Student";
-    const studentId   = fullUser?.rollNumber || fullUser?.email || req.user.id?.toString() || "";
+    const wrongCount = questions.filter(
+      ([, status]) => status === "wrong",
+    ).length;
 
-    // Build PDF data payload
-    const pdfData = {
-      examTitle:   exam.title,
-      studentName,
-      studentId,
-      subject:     exam.subject || "",
-      date:        new Date().toLocaleDateString("en-IN", {
-                     day: "numeric", month: "long", year: "numeric"
-                   }),
-      score:       result.obtainedMarks ?? 0,
-      total:       result.totalMarks ?? 0,
-      percentage:  result.percentage ?? 0,
-      correct:     correctCount,
-      wrong:       wrongCount,
-      skipped:     skippedCount,
-      verified,
-      hashVal:     submission?.hash || "N/A",
-      rank:        result.rank || "N/A",
-      timeSpent,
-      questions,
-    };
+    const skippedCount = questions.filter(
+      ([, status]) => status === "skipped",
+    ).length;
 
-    // Generate and stream PDF directly to response
-    generateResultPDF(pdfData, res);
+    const user = await User.findById(result.student).select("name email");
 
+    const studentName = user?.name || user?.email || "Student";
+
+    const studentId = user?.email || result.student.toString();
+
+    generateResultPDF(
+      {
+        examTitle: exam.title,
+        studentName,
+        studentId,
+        subject: exam.subject || "",
+        date: new Date().toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }),
+        score: result.obtainedMarks ?? 0,
+        total: result.totalMarks ?? 0,
+        percentage: result.percentage ?? 0,
+        correct: correctCount,
+        wrong: wrongCount,
+        skipped: skippedCount,
+        verified,
+        hashVal: submission?.hash || "N/A",
+        rank: result.rank || "N/A",
+        timeSpent,
+        questions,
+      },
+      res,
+    );
   } catch (error) {
-    console.error("🔥 PDF download error:", error);
+    console.error("Result PDF error:", error);
+
     if (!res.headersSent) {
-      res.status(500).json({ message: error.message });
+      return res.status(500).json({
+        message: "Failed to generate result PDF",
+      });
     }
   }
 });
 
-/* ==========================================
-   GET SINGLE RESULT (FULL ANALYSIS)
-========================================== */
+
+
 router.get("/:id", protect, async (req, res) => {
   try {
-    const result = await Result.findById(req.params.id).populate({
-      path: "exam",
-      populate: { path: "questions" },
-    });
+    const result = await Result.findById(req.params.id).populate("exam");
 
     if (!result) {
-      return res.status(404).json({ message: "Result not found" });
+      return res.status(404).json({
+        message: "Result not found",
+      });
+    }
+
+    if (
+      req.user.role !== "admin" &&
+      result.student.toString() !== req.user.id.toString()
+    ) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
     }
 
     const exam = result.exam;
+
     if (!exam) {
-      return res.status(400).json({ message: "Exam missing" });
+      return res.status(400).json({
+        message: "Exam missing",
+      });
     }
 
-    // Not yet evaluated
-    if (!result.evaluated) {
+    if (!result.evaluated || !exam.resultReleased) {
       return res.json({
         result: {
           _id: result._id,
           submissionId: result.submission,
           examTitle: exam.title,
-          obtainedMarks: null,
-          totalMarks: null,
-          percentage: 0,
-          totalTimeSpent: 0,
+          obtainedMarks:
+            result.evaluated && exam.resultReleased
+              ? result.obtainedMarks
+              : null,
+          totalMarks:
+            result.evaluated && exam.resultReleased ? result.totalMarks : null,
+          percentage:
+            result.evaluated && exam.resultReleased ? result.percentage : 0,
+          totalTimeSpent: result.totalTimeSpent || 0,
           statistics: {
-            totalQuestions:   exam.questions.length,
-            correctAnswers:   0,
-            wrongAnswers:     0,
+            totalQuestions: exam.questions.length,
+            correctAnswers: 0,
+            wrongAnswers: 0,
             skippedQuestions: exam.questions.length,
           },
           questionResults: [],
-          evaluated: false,
+          evaluated: result.evaluated,
         },
         released: exam.resultReleased ?? false,
       });
     }
 
-    const answerKey        = await AnswerKey.findOne({ exam: exam._id });
-    const answerKeyMap     = answerKey?.answers ? Object.fromEntries(answerKey.answers) : {};
-    const resultAnswersMap = result.answers     ? Object.fromEntries(result.answers)    : {};
-    const timeSpentMap     = result.timeSpent   ? Object.fromEntries(result.timeSpent)  : {};
+    const answerKey = await AnswerKey.findOne({
+      exam: exam._id,
+    });
 
-    let correct = 0, wrong = 0, skipped = 0;
-    const questionResults = [];
+    const answerKeyMap = answerKey?.answers
+      ? Object.fromEntries(answerKey.answers)
+      : {};
 
-    for (let i = 0; i < exam.questions.length; i++) {
-      const q    = exam.questions[i];
-      const qId  = q._id.toString();
-      const correctAnswer = answerKeyMap[qId];
-      const userAnswer    = resultAnswersMap[qId];
+    const resultAnswersMap = result.answers
+      ? Object.fromEntries(result.answers)
+      : {};
+
+    const timeSpentMap = result.timeSpent
+      ? Object.fromEntries(result.timeSpent)
+      : {};
+
+    let correct = 0;
+    let wrong = 0;
+    let skipped = 0;
+
+    const questionResults = exam.questions.map((question, index) => {
+      const qId = question._id.toString();
+
+      const correctOption = answerKeyMap[qId];
+
+      const selectedOption = resultAnswersMap[qId];
 
       let status = "skipped";
-      if (userAnswer === undefined || userAnswer === null) { skipped++; }
-      else if (userAnswer === correctAnswer)               { correct++; status = "correct"; }
-      else                                                 { wrong++;   status = "wrong"; }
 
-      questionResults.push({
-        questionNumber: i + 1,
-        questionText:   q.questionText || "No question available",
-        options:        q.options || [],
-        correctOption:  correctAnswer,
-        selectedOption: userAnswer,
-        timeTaken:      timeSpentMap[qId] || 0,
+      if (selectedOption === undefined || selectedOption === null) {
+        skipped++;
+      } else if (selectedOption === correctOption) {
+        correct++;
+        status = "correct";
+      } else {
+        wrong++;
+        status = "wrong";
+      }
+
+      return {
+        questionNumber: index + 1,
+        questionText: question.questionText,
+        options: question.options,
+        correctOption,
+        selectedOption,
+        timeTaken: timeSpentMap[qId] || 0,
         status,
-      });
-    }
+      };
+    });
 
-    const percentage =
-      result.percentage != null && result.percentage !== 0
-        ? result.percentage
-        : result.totalMarks > 0
-        ? parseFloat(((result.obtainedMarks / result.totalMarks) * 100).toFixed(2))
-        : 0;
-
-    res.json({
+    return res.json({
       result: {
-        _id:          result._id,
+        _id: result._id,
         submissionId: result.submission,
-        examTitle:    exam.title,
+        examTitle: exam.title,
         obtainedMarks: result.obtainedMarks,
-        totalMarks:    result.totalMarks,
-        percentage,
+        totalMarks: result.totalMarks,
+        percentage: result.percentage,
         totalTimeSpent: result.totalTimeSpent || 0,
         statistics: {
-          totalQuestions:   exam.questions.length,
-          correctAnswers:   correct,
-          wrongAnswers:     wrong,
+          totalQuestions: exam.questions.length,
+          correctAnswers: correct,
+          wrongAnswers: wrong,
           skippedQuestions: skipped,
         },
         questionResults,
         evaluated: result.evaluated,
       },
-      released: exam.resultReleased ?? true,
+      released: exam.resultReleased ?? false,
     });
   } catch (error) {
-    console.error("🔥 Single result error:", error);
-    res.status(500).json({ message: error.message });
+    console.error("Get result error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch result",
+    });
   }
 });
 

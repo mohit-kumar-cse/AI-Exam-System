@@ -7,7 +7,7 @@ export const requestLogger = (req, res, next) => {
 
   res.on("finish", async () => {
     try {
-      // Only log API routes (avoid static/assets noise)
+       
       if (!req.originalUrl.startsWith("/api")) return;
 
       const duration = Date.now() - start;
@@ -15,7 +15,7 @@ export const requestLogger = (req, res, next) => {
       await logEvent({
         type: "admin",
         message: `${req.method} ${req.originalUrl}`,
-        user: req.user || null, // if auth middleware sets it
+        user: req.user || null,  
         meta: {
           status: res.statusCode,
           duration: `${duration}ms`,

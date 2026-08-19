@@ -3,20 +3,20 @@ import { useState, useEffect } from "react";
 import api from "../../../../services/api";
 
 export function useResults(token) {
-  const [results,      setResults]      = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [detailed,     setDetailed]     = useState(null);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [detailed, setDetailed] = useState(null);
   const [verification, setVerification] = useState(null);
-  const [verifying,    setVerifying]    = useState(false);
-  const [downloading,  setDownloading]  = useState(false);
-  const [copied,       setCopied]       = useState(false);
-  const [selectedQ,    setSelectedQ]    = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [selectedQ, setSelectedQ] = useState(null);
 
   useEffect(() => {
     if (token) fetchResults();
   }, [token]);
 
-  // ── All results list ──────────────────────────────────────────────────────
+  
   const fetchResults = async () => {
     try {
       const res = await api.get("/results/my-results");
@@ -28,20 +28,44 @@ export function useResults(token) {
     }
   };
 
-  // ── Single detailed result ────────────────────────────────────────────────
+  
   const fetchDetailed = async (id) => {
     try {
       const res = await api.get(`/results/${id}`);
       if (!res.data?.result) return;
-      setDetailed(res.data.result);
+
+      const resData = res.data.result;
+
+      
+      const isReleased =
+        resData.isReleased ?? resData.exam?.resultReleased ?? true;
+      if (!isReleased) {
+        alert("🔒 Results are locked. The examiner has not released them yet.");
+        setDetailed(null);
+        return;
+      }
+
+      setDetailed(resData);
       setSelectedQ(null);
       setVerification(null);
+
+      
+      fetchResults();
     } catch (err) {
       console.error("Failed to fetch detailed result:", err);
+      
+      if (err.response?.status === 403) {
+        alert("🔒 Results are pending release by the examiner.");
+        
+        fetchResults();
+      } else {
+        alert("Failed to load result details.");
+      }
+      setDetailed(null);
     }
   };
 
-  // ── Verify submission ─────────────────────────────────────────────────────
+  
   const verifyResult = async () => {
     if (!detailed?.submissionId) {
       alert("Submission ID missing — cannot verify");
@@ -59,17 +83,20 @@ export function useResults(token) {
     }
   };
 
-  // ── Download PDF ──────────────────────────────────────────────────────────
+  
   const downloadPDF = async () => {
-    if (!detailed) { alert("No result selected"); return; }
+    if (!detailed) {
+      alert("No result selected");
+      return;
+    }
     setDownloading(true);
     try {
       const res = await api.get(`/results/${detailed._id}/download-pdf`, {
         responseType: "blob",
       });
       const url = URL.createObjectURL(new Blob([res.data]));
-      const a   = document.createElement("a");
-      a.href     = url;
+      const a = document.createElement("a");
+      a.href = url;
       a.download = `result_${detailed.examTitle}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
@@ -81,7 +108,7 @@ export function useResults(token) {
     }
   };
 
-  // ── Copy submission ID ────────────────────────────────────────────────────
+ 
   const copySubmissionId = () => {
     if (!detailed?.submissionId) return;
     navigator.clipboard.writeText(detailed.submissionId);
@@ -89,10 +116,10 @@ export function useResults(token) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // ── Toggle question selection ─────────────────────────────────────────────
+   
   const toggleQuestion = (q) => {
     setSelectedQ((prev) =>
-      prev?.questionNumber === q.questionNumber ? null : q
+      prev?.questionNumber === q.questionNumber ? null : q,
     );
   };
 

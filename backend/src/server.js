@@ -1,27 +1,21 @@
-// backend/src/server.js
-
+// C:\AI-Exam-System\backend\src\server.js
+import "dotenv/config";  
 import app from "./app.js";
 import connectDB from "./config/db.js";
 
-// Routes
-import verifyRoutes from "./routes/verifyRoutes.js";
-
-// Middleware
-import { requestLogger } from "./middleware/logger.middleware.js";
-
-// Env
 const PORT = process.env.PORT || 5000;
 
-// CONNECT DATABASE
-connectDB();
+const startServer = async () => {
+  try {
+    await connectDB();
 
-// LOGGER MIDDLEWARE
-app.use(requestLogger);
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Server startup failed:", error);
+    process.exit(1);
+  }
+};
 
-// VERIFY ROUTE
-app.use("/api/verify", verifyRoutes);
-
-// START SERVER
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+startServer();

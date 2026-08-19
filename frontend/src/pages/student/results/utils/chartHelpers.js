@@ -8,10 +8,11 @@ export function getPassFail(pct) {
 }
 
 export function getPieData(stats = {}) {
+  
   return [
     { name: "Correct", value: stats.correctAnswers || 0 },
-    { name: "Wrong",   value: stats.wrongAnswers || 0 },
-    { name: "Skipped", value: stats.skippedQuestions || 0 },
+    { name: "Wrong",   value: stats.incorrectAnswers || stats.wrongAnswers || 0 },
+    { name: "Skipped", value: stats.unanswered || stats.skippedQuestions || 0 },
   ];
 }
 
@@ -24,7 +25,8 @@ export function getTimeData(questions = []) {
 
 export function calcAccuracy(stats = {}) {
   const c = stats.correctAnswers ?? 0;
-  const w = stats.wrongAnswers ?? 0;
+  
+  const w = stats.incorrectAnswers ?? stats.wrongAnswers ?? 0;
   const attempted = c + w;
   return attempted > 0 ? `${Math.round((c / attempted) * 100)}%` : "—";
 }

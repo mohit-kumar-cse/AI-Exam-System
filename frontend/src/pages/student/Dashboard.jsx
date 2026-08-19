@@ -1,97 +1,126 @@
-//  frontend\src\pages\student\Dashboard.jsx
+// src/pages/student/Dashboard.jsx
 import { useEffect, useState } from "react";
-import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
 import NeuCard from "../../components/ui/NeuCard";
+import api from "../../services/api";
+
+function formatExamDate(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
 
 export default function Dashboard() {
-  const { token, user } = useAuth(); // ✅ Get user from context
+  const { token, user } = useAuth();
 
   const [data, setData] = useState({
-    name: "",
-    roll: "",
+    totalAttempted: 0,
+    totalPassed: 0,
     upcomingExam: null,
-    rank: ""
   });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (token) {
-      fetchDashboard();
-    }
+    if (token) fetchDashboard();
   }, [token]);
 
   const fetchDashboard = async () => {
     try {
-      const res = await axios.get(
-        "http://localhost:5000/api/student/dashboard",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      setData(res.data);
-    } catch (error) {
-      console.error(error);
+      const { data: res } = await api.get("/student/dashboard");
+      setData(res);
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ✅ Get first letter of name for avatar
-  const getInitial = () => {
-    return (user?.name || data.name || "S").charAt(0).toUpperCase();
-  };
+  const avatarLetter = (user?.name || "S").charAt(0).toUpperCase();
+
+  const StatBlock = ({ label, children }) => (
+    <NeuCard>
+      <h3 className="text-xs sm:text-sm font-semibold text-gray-400 mb-2 uppercase tracking-wider">
+        {label}
+      </h3>
+      {children}
+    </NeuCard>
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-400 text-sm">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="grid grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
 
-      {/* Student Info */}
-      <NeuCard>
-        <div className="flex items-center gap-6">
-          {/* ✅ Dynamic Avatar with First Letter */}
-          <div
-            className="
-              w-24 h-24 rounded-full
-              flex items-center justify-center
-              bg-linear-to-br from-blue-400 to-blue-600
-              shadow-[6px_6px_12px_#cfd5dd,-6px_-6px_12px_#ffffff]
-            "
-          >
-            <span className="text-4xl font-bold text-white">
-              {getInitial()}
+      {/* STUDENT INFO */}
+      <NeuCard className="sm:col-span-2 lg:col-span-1">
+        <div className="flex items-center gap-4 sm:gap-6">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 shadow-lg shrink-0">
+            <span className="text-2xl sm:text-3xl font-bold text-white">
+              {avatarLetter}
             </span>
           </div>
-
-          <div>
-            <h3 className="font-semibold text-lg">Student</h3>
-            <p className="text-lg font-medium">{data.name || user?.name}</p>
-            <p className="text-sm text-gray-600">{user?.email || "No email"}</p>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm text-gray-400 font-medium uppercase tracking-wider mb-0.5">
+              Student
+            </p>
+            <p className="text-base sm:text-lg font-semibold text-white truncate">
+              {user?.name || "N/A"}
+            </p>
+            <p className="text-xs sm:text-sm text-gray-400 truncate">
+              {user?.email || "No email"}
+            </p>
           </div>
         </div>
       </NeuCard>
 
-      {/* Upcoming Exam */}
-      <NeuCard>
-        <h3 className="font-semibold">Upcoming Exam</h3>
+       
+      <StatBlock label="Upcoming Exam">
         {data.upcomingExam ? (
           <>
-            <p>{data.upcomingExam.title}</p>
-            <p className="text-sm text-gray-600">
-              {data.upcomingExam.date}
+            <p className="text-white font-medium text-sm sm:text-base truncate">
+              {data.upcomingExam.title}
+            </p>
+            <p className="text-gray-400 text-xs sm:text-sm mt-1">
+              {formatExamDate(data.upcomingExam.startTime) || "Time TBA"}
             </p>
           </>
         ) : (
-          <p className="text-gray-500">No upcoming exam</p>
+          <p className="text-gray-500 text-sm">No upcoming exam</p>
         )}
-      </NeuCard>
+      </StatBlock>
 
-      {/* Rank */}
-      <NeuCard>
-        <h3 className="font-semibold">Rank</h3>
-        <p className="text-3xl font-bold mt-2">
-          {data.rank || "N/A"}
-        </p>
-      </NeuCard>
+      
+      <StatBlock label="Exam Performance">
+        <div className="flex items-center gap-4">
+          <div>
+            <p className="text-2xl sm:text-3xl font-bold text-white">
+              {data.totalAttempted}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">Attempted</p>
+          </div>
+          <div className="h-8 w-px bg-white/10" />
+          <div>
+            <p className="text-2xl sm:text-3xl font-bold text-green-400">
+              {data.totalPassed}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">Passed</p>
+          </div>
+        </div>
+      </StatBlock>
 
     </div>
   );

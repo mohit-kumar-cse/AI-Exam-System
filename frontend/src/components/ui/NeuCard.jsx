@@ -1,9 +1,5 @@
-// C:\AI-Exam-System\frontend\src\components\ui\NeuCard.jsx
-export default function NeuCard({
-  children,
-  className = "",
-  onClick,
-}) {
+// src/components/ui/NeuCard.jsx
+export default function NeuCard({ children, className = "", onClick }) {
   return (
     <div
       onClick={onClick}
@@ -11,11 +7,12 @@ export default function NeuCard({
         relative z-10
         bg-white/5
         border border-white/10
-        rounded-2xl p-6
+        rounded-xl sm:rounded-2xl
+        p-4 sm:p-6
         shadow-lg
         hover:shadow-xl
         transition-all duration-300
-        ${onClick ? "cursor-pointer" : ""}
+        ${onClick ? "cursor-pointer active:scale-[0.99] touch-manipulation" : ""}
         ${className}
       `}
     >

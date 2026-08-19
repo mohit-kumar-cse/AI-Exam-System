@@ -1,5 +1,6 @@
-// backend/src/routes/examRoutes.js
+// C:\AI-Exam-System\backend\src\routes\examRoutes.js
 import express from "express";
+
 import {
   createExam,
   addQuestion,
@@ -13,57 +14,99 @@ import {
   updateQuestion,
   deleteQuestion,
   deleteExam,
+  toggleResultRelease, 
 } from "../controllers/examController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
+import authorize from "../middleware/role.middleware.js";
 
 const router = express.Router();
 
-/* =======================================================
-   ADMIN AND EXAMINER ROUTES
-======================================================= */
-
-// Create exam
-router.post("/", protect, createExam);
-
-// Add single question to exam
-router.post("/:examId/question", protect, addQuestion);
-
-// Add multiple questions at once
-router.post("/:examId/questions", protect, addMultipleQuestions);
-
-// Update a specific question
-router.put("/:examId/question/:questionId", protect, updateQuestion);
-
-// Delete a specific question
-router.delete("/:examId/question/:questionId", protect, deleteQuestion);
-
-// Upload answer key — triggers auto-evaluation of all saved results
-router.post("/:examId/answer-key", protect, uploadAnswerKey);
-
-// Publish or unpublish exam
-router.patch("/:examId/publish", protect, publishExam);
-
-// Update exam start and end timing
-router.patch("/:examId/timing", protect, updateExamTiming);
-
-// Delete exam
-router.delete("/:examId", protect, deleteExam);
-
-/* =======================================================
-   STUDENT ROUTES
-======================================================= */
-
-// Get all published exams
 router.get("/", protect, getAllExams);
 
-// Start exam — returns questions
-router.get("/:examId/start", protect, startExam);
+router.post(
+  "/",
+  protect,
+  authorize("admin", "examiner"),
+  createExam
+);
 
-// Get student result for a specific exam
-router.get("/:examId/result", protect, getStudentResult);
+router.post(
+  "/:examId/question",
+  protect,
+  authorize("admin", "examiner"),
+  addQuestion
+);
 
-// NOTE: Exam submission is at POST /api/submissions/submit
-// See: submissionRoutes.js and submissionController.js
+router.post(
+  "/:examId/questions",
+  protect,
+  authorize("admin", "examiner"),
+  addMultipleQuestions
+);
+
+router.put(
+  "/:examId/question/:questionId",
+  protect,
+  authorize("admin", "examiner"),
+  updateQuestion
+);
+
+router.delete(
+  "/:examId/question/:questionId",
+  protect,
+  authorize("admin", "examiner"),
+  deleteQuestion
+);
+
+router.post(
+  "/:examId/answer-key",
+  protect,
+  authorize("admin", "examiner"),
+  uploadAnswerKey
+);
+
+router.patch(
+  "/:examId/publish",
+  protect,
+  authorize("admin", "examiner"),
+  publishExam
+);
+
+
+router.patch(
+  "/:examId/toggle-results",
+  protect,
+  authorize("admin", "examiner"),
+  toggleResultRelease
+);
+
+router.patch(
+  "/:examId/timing",
+  protect,
+  authorize("admin", "examiner"),
+  updateExamTiming
+);
+
+router.delete(
+  "/:examId",
+  protect,
+  authorize("admin", "examiner"),
+  deleteExam
+);
+
+router.get(
+  "/:examId/start",
+  protect,
+  authorize("student"),
+  startExam
+);
+
+router.get(
+  "/:examId/result",
+  protect,
+  authorize("student"),
+  getStudentResult
+);
 
 export default router;

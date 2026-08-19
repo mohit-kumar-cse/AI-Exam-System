@@ -27,16 +27,18 @@ export default function StudentLayout() {
   return (
     <div className="flex h-screen bg-[#0f172a] text-white overflow-hidden">
 
-      {/* SIDEBAR — fixed height, scrolls independently */}
-      <div className="h-screen sticky top-0 shrink-0 overflow-y-auto">
+      <div className="hidden md:flex h-screen sticky top-0 shrink-0 overflow-y-auto">
         <Sidebar title="Student Panel" links={LINKS} />
       </div>
 
-      {/* MAIN — scrollable content area */}
+      <div className="md:hidden">
+        <Sidebar title="Student Panel" links={LINKS} />
+      </div>
+
       <main className="flex-1 overflow-y-auto">
-        <div className="p-8">
+        <div className="p-4 pt-16 sm:p-6 md:p-8 md:pt-8">
           <Navbar title={getTitle(pathname)} />
-          <div className="mt-6">
+          <div className="mt-4 sm:mt-6">
             <Outlet />
           </div>
         </div>

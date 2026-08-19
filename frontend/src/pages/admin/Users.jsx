@@ -4,9 +4,8 @@ import { createPortal } from "react-dom";
 import NeuCard from "../../components/ui/NeuCard";
 import api from "../../services/api";
 
-// ── Portal Dropdown — unchanged, already well-built ──────────────────────────
 function Dropdown({ value, options, onChange }) {
-  const [open,     setOpen]     = useState(false);
+  const [open, setOpen]         = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
   const ref         = useRef();
   const dropdownRef = useRef();
@@ -38,10 +37,10 @@ function Dropdown({ value, options, onChange }) {
       <div
         ref={ref}
         onClick={() => setOpen(!open)}
-        className="bg-[#1e293b] text-white px-3 py-2 rounded-lg cursor-pointer border border-gray-600 flex justify-between items-center select-none"
+        className="bg-[#1e293b] text-white px-3 py-2 rounded-lg cursor-pointer border border-gray-600 flex justify-between items-center select-none text-sm touch-manipulation"
       >
         <span className="capitalize">{value}</span>
-        <span className="text-gray-400">▾</span>
+        <span className="text-gray-400 text-xs">▾</span>
       </div>
 
       {open && createPortal(
@@ -54,7 +53,7 @@ function Dropdown({ value, options, onChange }) {
             <div
               key={opt}
               onClick={() => { onChange(opt); setOpen(false); }}
-              className={`px-3 py-2 cursor-pointer capitalize hover:bg-blue-600 transition ${value === opt ? "bg-blue-500 text-white" : "text-gray-300"}`}
+              className={`px-3 py-2.5 cursor-pointer capitalize hover:bg-blue-600 transition text-sm touch-manipulation ${value === opt ? "bg-blue-500 text-white" : "text-gray-300"}`}
             >
               {opt}
             </div>
@@ -66,13 +65,13 @@ function Dropdown({ value, options, onChange }) {
   );
 }
 
-// ── Add User Modal ────────────────────────────────────────────────────────────
 function AddUserModal({ show, formData, setFormData, onCreate, onClose }) {
   if (!show) return null;
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-[#0f172a] p-6 rounded-xl w-96 space-y-3 border border-gray-700">
-        <h3 className="text-xl font-semibold text-white">Create User</h3>
+    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50">
+      {/* Bottom sheet on mobile, centered modal on sm+ */}
+      <div className="bg-[#0f172a] p-4 sm:p-6 rounded-t-2xl sm:rounded-xl w-full sm:w-96 space-y-3 border border-gray-700">
+        <h3 className="text-lg sm:text-xl font-semibold text-white">Create User</h3>
 
         {[
           { placeholder: "Full Name",     key: "name",     type: "text"     },
@@ -83,7 +82,7 @@ function AddUserModal({ show, formData, setFormData, onCreate, onClose }) {
             key={key}
             type={type}
             placeholder={placeholder}
-            className="w-full bg-[#1e293b] border border-gray-700 p-2 rounded-lg text-white"
+            className="w-full bg-[#1e293b] border border-gray-700 p-2.5 rounded-lg text-white text-sm"
             value={formData[key]}
             onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
           />
@@ -96,10 +95,16 @@ function AddUserModal({ show, formData, setFormData, onCreate, onClose }) {
         />
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="px-4 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-white/5 transition">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-white/5 transition text-sm touch-manipulation"
+          >
             Cancel
           </button>
-          <button onClick={onCreate} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium transition">
+          <button
+            onClick={onCreate}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium transition text-sm touch-manipulation"
+          >
             Create
           </button>
         </div>
@@ -108,7 +113,6 @@ function AddUserModal({ show, formData, setFormData, onCreate, onClose }) {
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
 const EMPTY_FORM = { name: "", email: "", password: "", role: "student" };
 
 export default function Users() {
@@ -132,7 +136,6 @@ export default function Users() {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
-  // ── Filter derived — no separate state needed ─────────────────────────────
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
       u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -177,7 +180,7 @@ export default function Users() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-64">
+      <div className="p-4 sm:p-6 flex items-center justify-center min-h-64">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-400 text-sm">Loading users...</p>
@@ -187,19 +190,19 @@ export default function Users() {
   }
 
   return (
-    <div className="space-y-6 p-6 text-white">
+    <div className="space-y-4 sm:space-y-6 text-white">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-3">
         <div>
-          <h2 className="text-2xl font-bold">User Management</h2>
-          <p className="text-gray-400 text-sm mt-0.5">
+          <h2 className="text-xl sm:text-2xl font-bold">User Management</h2>
+          <p className="text-gray-400 text-xs sm:text-sm mt-0.5">
             {users.length} total user{users.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-xl font-medium transition"
+          className="bg-blue-600 hover:bg-blue-700 px-3 sm:px-4 py-2 rounded-xl font-medium transition text-xs sm:text-sm shrink-0 touch-manipulation"
         >
           + Add User
         </button>
@@ -207,15 +210,15 @@ export default function Users() {
 
       {/* FILTERS */}
       <NeuCard>
-        <div className="flex flex-col md:flex-row gap-4">
+        <div className="flex flex-col sm:flex-row gap-3">
           <input
             type="text"
             placeholder="Search name or email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 bg-[#0f172a] border border-gray-700 p-2 rounded-lg text-white"
+            className="flex-1 bg-[#0f172a] border border-gray-700 p-2.5 rounded-lg text-white text-sm"
           />
-          <div className="w-full md:w-48">
+          <div className="w-full sm:w-44">
             <Dropdown
               value={roleFilter}
               options={["all", "student", "examiner", "admin"]}
@@ -225,20 +228,20 @@ export default function Users() {
         </div>
       </NeuCard>
 
-      {/* TABLE */}
-      <NeuCard>
+      {/* TABLE — scrollable on mobile */}
+      <NeuCard className="p-0 sm:p-6">
         {filteredUsers.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-8">
+          <p className="text-gray-500 text-sm text-center py-8 px-4">
             No users match your search.
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[480px]">
               <thead>
                 <tr className="border-b border-gray-700 text-gray-400 text-left">
                   <th className="p-3">User</th>
                   <th className="p-3">Role</th>
-                  <th className="p-3">Joined</th>
+                  <th className="p-3 hidden sm:table-cell">Joined</th>
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
@@ -246,23 +249,23 @@ export default function Users() {
                 {filteredUsers.map((user) => (
                   <tr key={user._id} className="border-b border-gray-800 hover:bg-white/5 transition">
                     <td className="p-3">
-                      <p className="font-medium text-white">{user.name}</p>
-                      <p className="text-gray-400 text-xs">{user.email}</p>
+                      <p className="font-medium text-white text-sm">{user.name}</p>
+                      <p className="text-gray-400 text-xs truncate max-w-[140px] sm:max-w-none">{user.email}</p>
                     </td>
-                    <td className="p-3 w-44">
+                    <td className="p-3 w-36 sm:w-44">
                       <Dropdown
                         value={user.role}
                         options={["student", "examiner", "admin"]}
                         onChange={(role) => handleChangeRole(user._id, role)}
                       />
                     </td>
-                    <td className="p-3 text-gray-400">
+                    <td className="p-3 text-gray-400 text-xs hidden sm:table-cell">
                       {new Date(user.createdAt).toLocaleDateString("en-IN")}
                     </td>
                     <td className="p-3">
                       <button
                         onClick={() => handleDeleteUser(user._id)}
-                        className="text-red-400 hover:text-red-300 text-sm transition"
+                        className="text-red-400 hover:text-red-300 text-xs sm:text-sm transition touch-manipulation"
                       >
                         Delete
                       </button>

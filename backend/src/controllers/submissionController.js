@@ -2,186 +2,328 @@
 import Submission from "../models/Submission.js";
 import AnswerKey from "../models/AnswerKey.js";
 import Result from "../models/Result.js";
-import { generateHash, generateSignature } from "../utils/security.js";
+import Exam from "../models/Exam.js";
+import { updateExamRanks } from "./examController.js"; 
+
+import {
+  generateHash,
+  generateSignature,
+} from "../utils/security.js";
+
 import { createLog } from "../utils/logger.js";
 
-/* ================= SUBMIT EXAM ================= */
+const getAnswersObject = (answers) => {
+  if (answers instanceof Map) {
+    return Object.fromEntries(answers);
+  }
+
+  if (
+    answers &&
+    typeof answers === "object" &&
+    !Array.isArray(answers)
+  ) {
+    return answers;
+  }
+
+  return {};
+};
+
+const calculateTotalMarks = (exam) => {
+  return exam.questions.reduce(
+    (total, question) => total + Number(question.marks || 0),
+    0
+  );
+};
+
+const calculateUnanswered = (questions, answers) => {
+  return questions.filter(
+    (question) =>
+      answers[question._id.toString()] === undefined ||
+      answers[question._id.toString()] === null
+  ).length;
+};
+
+const calculateTotalTime = (timeSpent) => {
+  if (!timeSpent || typeof timeSpent !== "object") {
+    return 0;
+  }
+
+  return Object.values(timeSpent).reduce(
+    (total, value) => total + Math.max(0, Number(value) || 0),
+    0
+  );
+};
+
 export const submitExam = async (req, res) => {
   try {
-    const { examId, answers, timeSpent } = req.body;
+    const { examId, answers, timeSpent = {} } = req.body;
     const studentId = req.user.id;
 
-    console.log("📥 Incoming Submission:", req.body);
-
-    /* ================= VALIDATION ================= */
-    if (!examId || !answers || typeof answers !== "object") {
+    if (!examId) {
       return res.status(400).json({
-        message: "Invalid examId or answers format",
+        message: "examId is required",
       });
     }
 
-    /* ================= PREVENT DUPLICATE ================= */
-    const existing = await Submission.findOne({
+    if (
+      !answers ||
+      typeof answers !== "object" ||
+      Array.isArray(answers)
+    ) {
+      return res.status(400).json({
+        message: "Invalid answers format",
+      });
+    }
+
+    const exam = await Exam.findById(examId);
+
+    if (!exam) {
+      return res.status(404).json({
+        message: "Exam not found",
+      });
+    }
+
+    
+    if (!exam.isPublished) {
+      return res.status(403).json({
+        message: "This exam is not published yet.",
+      });
+    }
+
+    const now = new Date();
+
+    if (exam.startTime && now < new Date(exam.startTime)) {
+      return res.status(403).json({
+        message: "This exam has not started yet.",
+      });
+    }
+
+    if (exam.endTime && now > new Date(exam.endTime)) {
+      return res.status(403).json({
+        message: "This exam has already ended.",
+      });
+    }
+
+     
+    const existingSubmission = await Submission.findOne({
       student: studentId,
       exam: examId,
     });
 
-    if (existing) {
-      return res.status(400).json({ message: "Already submitted" });
+    if (existingSubmission) {
+      return res.status(409).json({
+        message: "You have already submitted this exam",
+        submissionId: existingSubmission._id,
+      });
     }
 
-    /* ================= SAVE SUBMISSION FIRST (no hash yet) ================= */
-    // Save first so MongoDB assigns the real createdAt timestamp
-    // We need createdAt BEFORE hashing so verifyController can reproduce it
+    const answersObject = getAnswersObject(answers);
+
+    
+    for (const [questionId, selectedOption] of Object.entries(answersObject)) {
+      if (
+        !Number.isInteger(selectedOption) ||
+        selectedOption < 0 ||
+        selectedOption > 3
+      ) {
+        return res.status(400).json({
+          message: `Invalid answer for question ${questionId}`,
+        });
+      }
+    }
+
+     
     const submission = await Submission.create({
       student: studentId,
       exam: examId,
-      answers,
+      answers: answersObject,
       isFinalized: true,
+      startedAt: null,
+      submittedAt: now,
+      completionReason: "manual_submit",
     });
 
-    console.log("✅ Submission saved:", submission._id);
-
-    /* ================= HASH + SIGNATURE (using real createdAt) ================= */
-    // Convert answers to plain object for consistent JSON.stringify
-    const answersAsObject =
-      answers instanceof Map ? Object.fromEntries(answers) : answers;
-
-    const dataToHash = {
+    const hash = generateHash({
       studentId: studentId.toString(),
       examId: examId.toString(),
-      answers: answersAsObject,
-      submittedAt: submission.createdAt, // ✅ real DB timestamp, reproducible
-    };
+      answers: answersObject,
+      submittedAt: submission.createdAt,
+    });
 
-    const hash = generateHash(dataToHash);
-    const signature = generateSignature(hash);
-
-    // Save hash + signature back to the submission record
     submission.hash = hash;
-    submission.signature = signature;
+    submission.signature = generateSignature(hash);
+    submission.integrityVerified = true;
+
     await submission.save();
 
-    console.log("✅ Hash & signature saved");
-
-    /* ================= FETCH ANSWER KEY ================= */
+     
     const answerKey = await AnswerKey.findOne({ exam: examId });
 
-    /* ================= NO ANSWER KEY → SAVE UNEVALUATED RESULT ================= */
+    
     if (!answerKey) {
-      console.log("⚠️ No answer key found. Saving unevaluated result.");
-
       const result = await Result.create({
         student: studentId,
         exam: examId,
         submission: submission._id,
-        answers,
-        timeSpent: timeSpent || {},
+        answers: answersObject,
+        timeSpent,
+        totalTimeSpent: calculateTotalTime(timeSpent),
         obtainedMarks: null,
-        totalMarks: null,
+        totalMarks: exam.totalMarks || calculateTotalMarks(exam),
         percentage: 0,
         evaluated: false,
+        correctAnswers: 0,
+        incorrectAnswers: 0,
+        unanswered: calculateUnanswered(exam.questions, answersObject),
       });
 
-      console.log("✅ Unevaluated result saved:", result._id);
+       
 
       await createLog({
         user: studentId,
         action: "SUBMIT_EXAM",
+        exam: examId,
+        submission: submission._id,
         resource: examId,
-        metadata: { evaluated: false, reason: "No answer key yet" },
+        metadata: { evaluated: false },
+        status: "success",
       });
 
-      return res.json({
-        message: "Submitted successfully. Result will be available after the answer key is uploaded.",
+      return res.status(201).json({
+        message: "Exam submitted successfully. Results will be available once evaluated and released.",
         submissionId: submission._id,
         resultId: result._id,
       });
     }
 
-    /* ================= EVALUATION ================= */
+     
+    let obtainedMarks = 0;
+    let totalMarks = 0;
     let correct = 0;
     let wrong = 0;
     let skipped = 0;
-    const questionResults = [];
 
-    // ✅ for..of on Map entries — forEach doesn't work on Mongoose Map
-    for (const [qId, correctOption] of answerKey.answers.entries()) {
-      const selectedOption = answersAsObject[qId];
+    for (const question of exam.questions) {
+      const questionId = question._id.toString();
+      const selected = answersObject[questionId];
 
-      let status = "skipped";
-      if (selectedOption === undefined || selectedOption === null) {
+      
+      const correctOption = answerKey.answers?.get
+        ? answerKey.answers.get(questionId)
+        : answerKey.answers?.[questionId];
+
+      const marks = Number(question.marks || 0);
+      const negativeMarks = Number(question.negativeMarks || 0);
+
+      totalMarks += marks;
+
+      if (selected === undefined || selected === null) {
         skipped++;
-        status = "skipped";
-      } else if (selectedOption === correctOption) {
-        correct++;
-        status = "correct";
-      } else {
-        wrong++;
-        status = "wrong";
+        continue;
       }
 
-      questionResults.push({
-        questionId: qId,
-        selectedOption,
-        correctOption,
-        status,
-        timeTaken: timeSpent?.[qId] || 0,
-      });
+      if (selected === correctOption) {
+        correct++;
+        obtainedMarks += marks;
+      } else {
+        wrong++;
+        obtainedMarks -= negativeMarks;
+      }
     }
 
-    const total = answerKey.answers.size;
     const percentage =
-      total > 0 ? parseFloat(((correct / total) * 100).toFixed(2)) : 0;
+      totalMarks > 0
+        ? Number(Math.max(0, (obtainedMarks / totalMarks) * 100).toFixed(2))
+        : 0;
 
-    /* ================= SAVE RESULT ================= */
     const result = await Result.create({
       student: studentId,
       exam: examId,
       submission: submission._id,
-      answers,
-      timeSpent: timeSpent || {},
-      obtainedMarks: correct,
-      totalMarks: total,
+      answers: answersObject,
+      timeSpent,
+      totalTimeSpent: calculateTotalTime(timeSpent),
+      obtainedMarks,
+      totalMarks,
       percentage,
       evaluated: true,
+      evaluatedAt: new Date(),
+      correctAnswers: correct,
+      incorrectAnswers: wrong,
+      unanswered: skipped,
     });
+    
+    await updateExamRanks(examId);
 
-    console.log("✅ Result created:", result._id);
-
-    /* ================= LOGGING ================= */
     await createLog({
       user: studentId,
       action: "SUBMIT_EXAM",
+      exam: examId,
+      submission: submission._id,
       resource: examId,
-      metadata: { correct, wrong, skipped, percentage },
+      metadata: {
+        correct,
+        wrong,
+        skipped,
+        obtainedMarks,
+        totalMarks,
+        percentage,
+      },
+      status: "success",
     });
 
-    /* ================= RESPONSE ================= */
-    res.json({
-      message: "Submitted & evaluated successfully",
+    return res.status(201).json({
+      message: exam.resultReleased
+        ? "Exam submitted and evaluated successfully."
+        : "Exam submitted successfully. Results will be visible once released by the examiner.",
       submissionId: submission._id,
       resultId: result._id,
     });
+  } catch (error) {
+    console.error("SUBMIT ERROR:", error);
 
-  } catch (err) {
-    console.error("❌ SUBMIT ERROR:", err);
-    res.status(500).json({ message: "Submission failed", error: err.message });
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: "You have already submitted this exam",
+      });
+    }
+
+    return res.status(500).json({
+      message: "Submission failed",
+      error: error.message,
+    });
   }
 };
 
-/* ================= GET SUBMISSION BY ID ================= */
 export const getSubmissionById = async (req, res) => {
   try {
     const submission = await Submission.findById(req.params.id);
 
     if (!submission) {
-      return res.status(404).json({ message: "Submission not found" });
+      return res.status(404).json({
+        message: "Submission not found",
+      });
     }
 
-    res.json(submission);
-  } catch (err) {
-    console.error("❌ FETCH SUBMISSION ERROR:", err);
-    res.status(500).json({ message: "Error fetching submission", error: err.message });
+    const isOwner = submission.student.toString() === req.user.id.toString();
+    const isAdmin = req.user.role === "admin";
+    const isExaminer = req.user.role === "examiner";
+
+    if (!isOwner && !isAdmin && !isExaminer) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
+
+    return res.json({
+      submission,
+    });
+  } catch (error) {
+    console.error("getSubmissionById ERROR:", error);
+
+    return res.status(500).json({
+      message: "Error fetching submission",
+      error: error.message,
+    });
   }
 };

@@ -1,10 +1,16 @@
-//  backend\src\routes\auth.routes.js
+// C:\AI-Exam-System\backend\src\routes\auth.routes.js
 import express from "express";
-import { register, login } from "../controllers/auth.controller.js";
+
+import {
+  register,
+  login,
+  googleLogin,
+} from "../controllers/auth.controller.js";
 
 const router = express.Router();
 
 router.post("/register", register);
 router.post("/login", login);
+router.post("/google", googleLogin);
 
 export default router;

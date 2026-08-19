@@ -9,7 +9,6 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🔹 Load auth from localStorage on app start
   useEffect(() => {
     try {
       const storedAuth = localStorage.getItem("auth");
@@ -27,10 +26,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  // 🔹 LOGIN
   const login = (authData) => {
-    console.log("📦 Saving auth data:", authData);
-
     setUser(authData.user);
     setToken(authData.token);
 
@@ -38,7 +34,6 @@ export function AuthProvider({ children }) {
     localStorage.setItem("token", authData.token);
   };
 
-  // 🔹 LOGOUT
   const logout = () => {
     setUser(null);
     setToken(null);

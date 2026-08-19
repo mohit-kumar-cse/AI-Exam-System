@@ -1,8 +1,20 @@
-// C:\AI-Exam-System\backend\src\middleware\adminMiddleware.js
-const adminMiddleware = (req, res, next) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ message: "Admin access denied" });
+const adminMiddleware = (
+  req,
+  res,
+  next
+) => {
+  if (!req.user) {
+    return res.status(401).json({
+      message: "Unauthorized access",
+    });
   }
+
+  if (req.user.role !== "admin") {
+    return res.status(403).json({
+      message: "Admin access denied",
+    });
+  }
+
   next();
 };
 

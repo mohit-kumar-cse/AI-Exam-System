@@ -6,15 +6,17 @@ import NeuButton from "../../components/ui/NeuButton";
 import api from "../../services/api";
 
 export default function AssignExaminer() {
-  const [exams,            setExams]            = useState([]);
-  const [examiners,        setExaminers]        = useState([]);
-  const [selectedExam,     setSelectedExam]     = useState(null);
+  const [exams, setExams] = useState([]);
+  const [examiners, setExaminers] = useState([]);
+  const [selectedExam, setSelectedExam] = useState(null);
   const [selectedExaminer, setSelectedExaminer] = useState(null);
-  const [loading,          setLoading]          = useState(false);
-  const [fetchLoading,     setFetchLoading]     = useState(true);
-  const [successMsg,       setSuccessMsg]       = useState("");
+  const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(true);
+  const [successMsg, setSuccessMsg] = useState("");
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -40,10 +42,12 @@ export default function AssignExaminer() {
     setSuccessMsg("");
     try {
       await api.post("/admin/assign-examiner", {
-        examId:     selectedExam._id,
+        examId: selectedExam._id,
         examinerId: selectedExaminer._id,
       });
-      setSuccessMsg(`✅ ${selectedExaminer.name} assigned to "${selectedExam.title}"`);
+      setSuccessMsg(
+        `✅ ${selectedExaminer.name} assigned to "${selectedExam.title}"`,
+      );
       setSelectedExam(null);
       setSelectedExaminer(null);
     } catch (err) {
@@ -55,7 +59,7 @@ export default function AssignExaminer() {
 
   if (fetchLoading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-64">
+      <div className="p-4 sm:p-6 flex items-center justify-center min-h-64">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-400 text-sm">Loading data...</p>
@@ -65,86 +69,100 @@ export default function AssignExaminer() {
   }
 
   return (
-    <div className="p-6">
-      <NeuCard className="max-w-xl">
-        <h2 className="text-xl font-semibold text-white mb-6">
+    <div>
+      <NeuCard className="w-full max-w-xl">
+        <h2 className="text-lg sm:text-xl font-semibold text-white mb-4 sm:mb-6">
           Assign Examiner to Exam
         </h2>
 
         {successMsg && (
-          <div className="mb-5 p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
+          <div className="mb-4 sm:mb-5 p-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-xs sm:text-sm">
             {successMsg}
           </div>
         )}
 
-        <div className="space-y-6">
-
-          {/* EXAM DROPDOWN */}
+        <div className="space-y-4 sm:space-y-6">
           <div>
-            <label className="text-sm text-gray-400 mb-2 block">Select Exam</label>
+            <label className="text-xs sm:text-sm text-gray-400 mb-2 block">
+              Select Exam
+            </label>
             <Listbox value={selectedExam} onChange={setSelectedExam}>
               <div className="relative">
-                <Listbox.Button className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-left text-white hover:border-white/20 transition">
+                <Listbox.Button className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-white/5 border border-white/10 text-left text-white text-sm hover:border-white/20 transition">
                   {selectedExam ? selectedExam.title : "Choose exam..."}
                 </Listbox.Button>
-                <Listbox.Options className="absolute mt-2 w-full bg-[#0f172a] border border-white/10 rounded-xl shadow-xl max-h-60 overflow-y-auto z-50">
+                <Listbox.Options className="absolute mt-2 w-full bg-[#0f172a] border border-white/10 rounded-xl shadow-xl max-h-52 overflow-y-auto z-50">
                   {exams.length === 0 ? (
-                    <p className="px-4 py-3 text-gray-500 text-sm">No exams found</p>
-                  ) : exams.map((exam) => (
-                    <Listbox.Option
-                      key={exam._id}
-                      value={exam}
-                      className={({ active }) =>
-                        `px-4 py-3 cursor-pointer transition ${active ? "bg-blue-600 text-white" : "text-gray-300"}`
-                      }
-                    >
-                      {exam.title}
-                    </Listbox.Option>
-                  ))}
+                    <p className="px-4 py-3 text-gray-500 text-sm">
+                      No exams found
+                    </p>
+                  ) : (
+                    exams.map((exam) => (
+                      <Listbox.Option
+                        key={exam._id}
+                        value={exam}
+                        className={({ active }) =>
+                          `px-4 py-3 cursor-pointer text-sm transition ${active ? "bg-blue-600 text-white" : "text-gray-300"}`
+                        }
+                      >
+                        {exam.title}
+                      </Listbox.Option>
+                    ))
+                  )}
                 </Listbox.Options>
               </div>
             </Listbox>
           </div>
 
-          {/* EXAMINER DROPDOWN */}
           <div>
-            <label className="text-sm text-gray-400 mb-2 block">Select Examiner</label>
+            <label className="text-xs sm:text-sm text-gray-400 mb-2 block">
+              Select Examiner
+            </label>
             <Listbox value={selectedExaminer} onChange={setSelectedExaminer}>
               <div className="relative">
-                <Listbox.Button className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-left text-white hover:border-white/20 transition">
+                <Listbox.Button className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-white/5 border border-white/10 text-left text-white text-sm hover:border-white/20 transition truncate">
                   {selectedExaminer
                     ? `${selectedExaminer.name} (${selectedExaminer.email})`
                     : "Choose examiner..."}
                 </Listbox.Button>
-                <Listbox.Options className="absolute mt-2 w-full bg-[#0f172a] border border-white/10 rounded-xl shadow-xl max-h-60 overflow-y-auto z-50">
+                <Listbox.Options className="absolute mt-2 w-full bg-[#0f172a] border border-white/10 rounded-xl shadow-xl max-h-52 overflow-y-auto z-50">
                   {examiners.length === 0 ? (
-                    <p className="px-4 py-3 text-gray-500 text-sm">No examiners found</p>
-                  ) : examiners.map((examiner) => (
-                    <Listbox.Option
-                      key={examiner._id}
-                      value={examiner}
-                      className={({ active }) =>
-                        `px-4 py-3 cursor-pointer transition ${active ? "bg-indigo-600 text-white" : "text-gray-300"}`
-                      }
-                    >
-                      {examiner.name}
-                      <span className="text-gray-500 ml-2 text-xs">({examiner.email})</span>
-                    </Listbox.Option>
-                  ))}
+                    <p className="px-4 py-3 text-gray-500 text-sm">
+                      No examiners found
+                    </p>
+                  ) : (
+                    examiners.map((examiner) => (
+                      <Listbox.Option
+                        key={examiner._id}
+                        value={examiner}
+                        className={({ active }) =>
+                          `px-4 py-3 cursor-pointer text-sm transition ${active ? "bg-indigo-600 text-white" : "text-gray-300"}`
+                        }
+                      >
+                        <span>{examiner.name}</span>
+                        <span className="text-gray-500 ml-2 text-xs hidden sm:inline">
+                          ({examiner.email})
+                        </span>
+                      </Listbox.Option>
+                    ))
+                  )}
                 </Listbox.Options>
               </div>
             </Listbox>
             {examiners.length === 0 && (
-              <p className="text-sm text-orange-400 mt-2">
+              <p className="text-xs sm:text-sm text-orange-400 mt-2">
                 ⚠️ No examiners found. Create examiner accounts first.
               </p>
             )}
           </div>
 
-          <NeuButton onClick={handleAssign} disabled={loading} className="w-full">
+          <NeuButton
+            onClick={handleAssign}
+            disabled={loading}
+            className="w-full justify-center"
+          >
             {loading ? "Assigning..." : "Assign Examiner"}
           </NeuButton>
-
         </div>
       </NeuCard>
     </div>

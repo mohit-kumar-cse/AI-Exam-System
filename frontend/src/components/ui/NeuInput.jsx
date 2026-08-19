@@ -19,14 +19,16 @@ export default function NeuInput({
       disabled={disabled}
       {...rest}
       className={`
-        w-full px-4 py-2 rounded-xl
+        w-full px-3 py-2.5 sm:px-4 sm:py-2 rounded-xl
         bg-[#0f172a]
-        text-white
-        placeholder-gray-400
+        text-sm sm:text-base text-white
+        placeholder-gray-500
         border border-gray-700
         shadow-inner
         focus:outline-none focus:ring-2 focus:ring-blue-500
         transition-all duration-200
+        min-h-[44px]
+        touch-manipulation
         ${disabled ? "opacity-50 cursor-not-allowed" : ""}
         ${className}
       `}

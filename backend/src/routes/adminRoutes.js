@@ -1,155 +1,364 @@
-//  backend\src\routes\adminRoutes.js
+// C:\AI-Exam-System\backend\src\routes\adminRoutes.js
 import express from "express";
+import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
+
 import User from "../models/User.js";
 import Exam from "../models/Exam.js";
+import Result from "../models/Result.js";
+import Submission from "../models/Submission.js";
+import SecurityEvent from "../models/SecurityEvent.js";
+
 import { protect } from "../middleware/authMiddleware.js";
 import adminMiddleware from "../middleware/adminMiddleware.js";
-import bcrypt from "bcrypt";
+import { logEvent } from "../utils/logger.js";
 
 const router = express.Router();
 
-/* ==========================================
-   DASHBOARD STATS
-========================================== */
+const normalizeEmail = (email) =>
+  String(email || "")
+    .trim()
+    .toLowerCase();
+
+const validObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
 router.get("/stats", protect, adminMiddleware, async (req, res) => {
   try {
-    const totalStudents = await User.countDocuments({ role: "student" });
-    const totalExams = await Exam.countDocuments();
-
-    res.json({
+    const [
       totalStudents,
+      totalExaminers,
       totalExams,
-      blockchainLogs: "Verified"
+      totalResults,
+      totalSubmissions,
+      totalSecurityEvents,
+      questionCountAgg,
+    ] = await Promise.all([
+      User.countDocuments({ role: "student" }),
+      User.countDocuments({ role: "examiner" }),
+      Exam.countDocuments(),
+      Result.countDocuments(),
+      Submission.countDocuments(),
+      SecurityEvent.countDocuments(),
+      Exam.aggregate([
+        {
+          $project: {
+            questionCount: { $size: { $ifNull: ["$questions", []] } },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$questionCount" },
+          },
+        },
+      ]),
+    ]);
+
+    const totalQuestions = questionCountAgg[0]?.total || 0;
+
+    return res.json({
+      totalStudents,
+      totalExaminers,
+      totalExams,
+      totalResults,
+      totalSubmissions,
+      totalSecurityEvents,
+      totalQuestions,
+      blockchainLogs: "Verified",
     });
   } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    console.error("Admin stats error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch admin statistics",
+    });
   }
 });
 
-/* ==========================================
-   USER MANAGEMENT
-========================================== */
-
-// Get all users
 router.get("/users", protect, adminMiddleware, async (req, res) => {
   try {
-    const users = await User.find().select("-password").sort({ createdAt: -1 });
-    res.json(users);
+    const users = await User.find()
+      .select(
+        "-password -googleId -lastLoginIP -security.lastLoginIP -security.lastUserAgent",
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json(users);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Admin users error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch users",
+    });
   }
 });
 
-// Create new user
 router.post("/users", protect, adminMiddleware, async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-    
-    if (!["student", "examiner"].includes(role)) {
+
+    if (!name || !email || !password || !role) {
       return res.status(400).json({
-        message: "Invalid role",
+        message: "Name, email, password and role are required",
       });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+    const cleanName = String(name).trim();
+    const cleanEmail = normalizeEmail(email);
+
+    if (cleanName.length < 2) {
+      return res.status(400).json({
+        message: "Name must contain at least 2 characters",
+      });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    if (password.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters",
+      });
+    }
 
-    // Create user
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role: role || "student"
+    if (!["student", "examiner"].includes(role)) {
+      return res.status(400).json({
+        message: "Only student or examiner accounts can be created here",
+      });
+    }
+
+    const existingUser = await User.findOne({
+      email: cleanEmail,
     });
 
-    res.status(201).json({
+    if (existingUser) {
+      return res.status(409).json({
+        message: "User already exists",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await User.create({
+      name: cleanName,
+      email: cleanEmail,
+      password,
+      role,
+      authProvider: "local",
+      isEmailVerified: false,
+      isActive: true,
+    });
+
+    await logEvent({
+      type: "admin",
+      action: "ADMIN_CREATE_USER",
+      message: `Admin created ${role} account`,
+      user: req.user.id,
+      meta: {
+        createdUserId: user._id,
+        role,
+      },
+      status: "success",
+    });
+
+    return res.status(201).json({
       message: "User created successfully",
       user: {
         _id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+      },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Admin create user error:", error);
+
+    return res.status(500).json({
+      message: "Failed to create user",
+    });
   }
 });
 
-// Update user role
-router.patch("/users/:userId/role", protect, adminMiddleware, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { role } = req.body;
+router.patch(
+  "/users/:userId/role",
+  protect,
+  adminMiddleware,
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body;
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { role },
-      { new: true }
-    ).select("-password");
+      if (!validObjectId(userId)) {
+        return res.status(400).json({
+          message: "Invalid user ID",
+        });
+      }
 
-    res.json({ message: "Role updated successfully", user });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+      if (!["student", "examiner", "admin"].includes(role)) {
+        return res.status(400).json({
+          message: "Invalid role",
+        });
+      }
 
-// Delete user
+      if (userId === req.user.id && role !== "admin") {
+        return res.status(400).json({
+          message: "You cannot remove your own admin role",
+        });
+      }
+
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { role },
+        {
+          new: true,
+          runValidators: true,
+        },
+      ).select("-password -googleId");
+
+      if (!user) {
+        return res.status(404).json({
+          message: "User not found",
+        });
+      }
+
+      await logEvent({
+        type: "admin",
+        action: "USER_ROLE_UPDATED",
+        message: "User role updated",
+        user: req.user.id,
+        meta: {
+          targetUserId: user._id,
+          newRole: role,
+        },
+        status: "success",
+      });
+
+      return res.json({
+        message: "Role updated successfully",
+        user,
+      });
+    } catch (error) {
+      console.error("Update role error:", error);
+
+      return res.status(500).json({
+        message: "Failed to update role",
+      });
+    }
+  },
+);
+
 router.delete("/users/:userId", protect, adminMiddleware, async (req, res) => {
   try {
     const { userId } = req.params;
+
+    if (!validObjectId(userId)) {
+      return res.status(400).json({
+        message: "Invalid user ID",
+      });
+    }
+
+    if (userId === req.user.id) {
+      return res.status(400).json({
+        message: "You cannot delete your own account",
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
     await User.findByIdAndDelete(userId);
-    res.json({ message: "User deleted successfully" });
+
+    await logEvent({
+      type: "admin",
+      action: "USER_DELETED",
+      message: "User deleted by administrator",
+      user: req.user.id,
+      meta: {
+        deletedUserId: userId,
+        deletedRole: user.role,
+      },
+      status: "warning",
+    });
+
+    return res.json({
+      message: "User deleted successfully",
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Delete user error:", error);
+
+    return res.status(500).json({
+      message: "Failed to delete user",
+    });
   }
 });
 
-/* ==========================================
-   ASSIGN EXAMINER TO EXAM
-========================================== */
 router.post("/assign-examiner", protect, adminMiddleware, async (req, res) => {
   try {
     const { examId, examinerId } = req.body;
 
-    // Verify examiner exists and has examiner role
-    const examiner = await User.findById(examinerId);
-    if (!examiner || examiner.role !== "examiner") {
-      return res.status(400).json({ message: "Invalid examiner" });
+    if (!validObjectId(examId) || !validObjectId(examinerId)) {
+      return res.status(400).json({
+        message: "Invalid exam ID or examiner ID",
+      });
     }
 
-    // Update exam with assigned examiner
+    const examiner = await User.findOne({
+      _id: examinerId,
+      role: "examiner",
+      isActive: true,
+    });
+
+    if (!examiner) {
+      return res.status(400).json({
+        message: "Invalid or inactive examiner",
+      });
+    }
+
     const exam = await Exam.findByIdAndUpdate(
       examId,
-      { assignedExaminer: examinerId },
-      { new: true }
-    );
+      {
+        assignedExaminer: examinerId,
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    ).populate("assignedExaminer", "name email role");
 
     if (!exam) {
-      return res.status(404).json({ message: "Exam not found" });
+      return res.status(404).json({
+        message: "Exam not found",
+      });
     }
 
-    res.json({
+    await logEvent({
+      type: "admin",
+      action: "EXAMINER_ASSIGNED",
+      message: "Examiner assigned to examination",
+      user: req.user.id,
+      exam: exam._id,
+      meta: {
+        examinerId,
+      },
+      status: "success",
+    });
+
+    return res.json({
       message: "Examiner assigned successfully",
-      exam
+      exam,
     });
   } catch (error) {
     console.error("Assign examiner error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
 
-/* ==========================================
-   EXAM CREATION (if needed)
-========================================== */
-router.post("/create-exam", protect, adminMiddleware, (req, res) => {
-  res.json({ message: "Exam created successfully ✅" });
+    return res.status(500).json({
+      message: "Failed to assign examiner",
+    });
+  }
 });
 
 export default router;

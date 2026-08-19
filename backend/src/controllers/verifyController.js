@@ -1,46 +1,94 @@
-// backend/src/controllers/verifyController.js
 import Submission from "../models/Submission.js";
-import { generateHash, verifySignature } from "../utils/security.js";
+
+import {
+  generateHash,
+  verifySignature,
+} from "../utils/security.js";
 
 export const verifyResult = async (req, res) => {
   try {
-    const submission = await Submission.findById(req.params.id);
+    const submission = await Submission.findById(
+      req.params.id
+    ).select("+hash +signature");
 
     if (!submission) {
-      return res.status(404).json({ message: "Submission not found" });
+      return res.status(404).json({
+        message: "Submission not found",
+      });
     }
 
-    if (!submission.hash || !submission.signature) {
-      return res.status(400).json({ message: "Submission has no integrity data" });
+    if (
+      !submission.hash ||
+      !submission.signature
+    ) {
+      return res.status(400).json({
+        message:
+          "Submission has no integrity data",
+      });
     }
 
-    // ── Convert answers the SAME way as submissionController ─────────────────
-    // submissionController received answers as plain object from req.body
-    // MongoDB stores it as a Mongoose Map — must convert back to plain object
-    // Then stableStringify in generateHash ensures key order doesn't matter
-    const answersAsObject = submission.answers
-      ? Object.fromEntries(submission.answers)
-      : {};
+    const answers =
+      submission.answers instanceof Map
+        ? Object.fromEntries(
+            submission.answers
+          )
+        : submission.answers || {};
 
-    // ── Recalculate hash using EXACT same fields as submission time ───────────
     const recalculatedHash = generateHash({
-      studentId:   submission.student.toString(),
-      examId:      submission.exam.toString(),
-      answers:     answersAsObject,
-      submittedAt: submission.createdAt,   // same field used at submission time
+      studentId:
+        submission.student.toString(),
+
+      examId:
+        submission.exam.toString(),
+
+      answers,
+
+      submittedAt:
+        submission.createdAt,
     });
 
-    const isHashValid      = recalculatedHash === submission.hash;
-    const isSignatureValid = verifySignature(submission.hash, submission.signature);
-    const valid            = isHashValid && isSignatureValid;
+    const isHashValid =
+      recalculatedHash === submission.hash;
 
-    res.json({
+    let isSignatureValid = false;
+
+    if (isHashValid) {
+      try {
+        isSignatureValid = verifySignature(
+          submission.hash,
+          submission.signature
+        );
+      } catch {
+        isSignatureValid = false;
+      }
+    }
+
+    const valid =
+      isHashValid && isSignatureValid;
+
+    return res.json({
       valid,
-      message: valid ? "Result is authentic and untampered" : "Result integrity check failed",
-    });
 
-  } catch (err) {
-    console.error("Verification error:", err);
-    res.status(500).json({ message: "Verification failed", error: err.message });
+      hashValid: isHashValid,
+
+      signatureValid:
+        isSignatureValid,
+
+      integrityVerified: valid,
+
+      message: valid
+        ? "Result is authentic and untampered"
+        : "Result integrity check failed",
+    });
+  } catch (error) {
+    console.error(
+      "Verification error:",
+      error
+    );
+
+    return res.status(500).json({
+      message: "Verification failed",
+      error: error.message,
+    });
   }
 };
