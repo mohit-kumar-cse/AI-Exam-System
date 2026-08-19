@@ -2,7 +2,7 @@ import axios from "axios";
 
 const configuredUrl =
   import.meta.env.VITE_API_URL ||
-  "https://ai-exam-system-mlfh.onrender.com";
+  "https://ai-exam-system-glfn.onrender.com";
 
 const apiBaseUrl = configuredUrl
   .trim()
